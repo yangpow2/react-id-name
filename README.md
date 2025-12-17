@@ -38,10 +38,20 @@ const { IdNameProvider, IdNameItem } = createIdNameContext<UserInfo>();
 
 // 2. Define your batch fetch function
 async function fetchUsers(ids: string[]): Promise<Record<string, UserInfo>> {
+  // Option A: If you have a batch API
   const response = await fetch(`/api/users?ids=${ids.join(',')}`);
   const users = await response.json();
-  // Return a map of id -> data
   return Object.fromEntries(users.map(u => [u.id, u]));
+
+  // Option B: If you only have single-item API, use Promise.allSettled
+  // const results = await Promise.allSettled(
+  //   ids.map(id => fetch(`/api/user/${id}`).then(r => r.json()))
+  // );
+  // return Object.fromEntries(
+  //   results
+  //     .filter((r): r is PromiseFulfilledResult<UserInfo> => r.status === 'fulfilled')
+  //     .map(r => [r.value.id, r.value])
+  // );
 }
 
 // 3. Wrap your list with Provider
@@ -146,6 +156,20 @@ const { IdNameProvider, IdNameItem, IdNameContext } = createIdNameContext<YourDa
   )}
 >
   {(user) => <span>{user?.name}</span>}
+</IdNameItem>
+```
+
+### Fallback to ID on Error or Not Found
+
+```tsx
+// Show ID when data is not available
+<IdNameItem id={userId}>
+  {(user) => <span>{user?.name ?? userId}</span>}
+</IdNameItem>
+
+// Or use showChildrenOnError to call children with null on error
+<IdNameItem id={userId} showChildrenOnError>
+  {(user) => <span>{user?.name ?? `Unknown (${userId})`}</span>}
 </IdNameItem>
 ```
 

@@ -38,6 +38,14 @@
   ],
   "author": "yangxyang",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yangpow2/react-id-name.git"
+  },
+  "bugs": {
+    "url": "https://github.com/yangpow2/react-id-name/issues"
+  },
+  "homepage": "https://github.com/yangpow2/react-id-name#readme",
   "sideEffects": false,
   "peerDependencies": {
     "react": ">=16.8.0"

@@ -1,0 +1,54 @@
+{
+  "name": "react-id-name",
+  "version": "0.0.1",
+  "description": "Efficiently resolve IDs to names in React lists — with batching, caching, and lazy loading",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup src/index.tsx --format cjs,esm --dts --clean",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "react",
+    "id",
+    "name",
+    "batch",
+    "fetch",
+    "lazy",
+    "load",
+    "cache",
+    "list",
+    "resolve",
+    "lookup",
+    "id-to-name",
+    "foreign-key",
+    "viewport",
+    "intersection-observer"
+  ],
+  "author": "yangxyang",
+  "license": "MIT",
+  "sideEffects": false,
+  "peerDependencies": {
+    "react": ">=16.8.0"
+  },
+  "dependencies": {
+    "react-intersection-observer": "^9.5.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.2.0",
+    "react": "^18.2.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.0.0"
+  }
+}

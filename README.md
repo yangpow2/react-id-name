@@ -10,6 +10,7 @@ Efficiently resolve IDs to names in React lists — with batching, caching, and 
 - 🔄 **Auto Retry** — Click to retry on error
 - 📦 **Tiny** — ~2KB gzipped, only one dependency
 - 🎯 **TypeScript** — Full type support with generics
+- ♻️ **Reusable** — Create once, use anywhere in your project
 
 ## Installation
 
@@ -68,6 +69,37 @@ function UserList() {
     </ul>
   );
 }
+```
+
+## Why Factory Pattern?
+
+This library uses a factory pattern (`createIdNameContext`) for three key reasons:
+
+1. **Type Safety** — Each context has its own generic type `T`, so TypeScript knows exactly what data you're working with
+2. **Multiple Instances** — You can have separate contexts for users, products, categories, etc., each with isolated caches
+3. **Reusability** — Create the context once in a shared file, then import and use it anywhere in your project:
+
+```tsx
+// contexts/user.ts
+export const { IdNameProvider: UserProvider, IdNameItem: UserItem } = createIdNameContext<User>();
+
+// pages/Home.tsx
+import { UserItem } from '@/contexts/user';
+<UserItem id={userId}>{(user) => user?.name}</UserItem>
+
+// pages/Profile.tsx  
+import { UserItem } from '@/contexts/user';
+<UserItem id={userId}>{(user) => user?.avatar}</UserItem>  // Same cache, no duplicate requests!
+```
+
+For basic `{ id, name }` data, you can also use the pre-built instance:
+
+```tsx
+import { SimpleIdNameProvider, SimpleIdNameItem } from 'react-id-name';
+
+<SimpleIdNameProvider request={fetchNames}>
+  <SimpleIdNameItem id="1">{(data) => data?.name}</SimpleIdNameItem>
+</SimpleIdNameProvider>
 ```
 
 ## API

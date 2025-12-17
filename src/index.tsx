@@ -294,3 +294,24 @@ export function createIdNameContext<T>() {
 }
 
 export default createIdNameContext;
+
+// ============ Default Instance ============
+
+/**
+ * Pre-built instance for simple { id, name } data.
+ * For quick usage without creating your own context.
+ *
+ * @example
+ * ```tsx
+ * import { SimpleIdNameProvider, SimpleIdNameItem } from 'react-id-name';
+ *
+ * <SimpleIdNameProvider request={fetchNames}>
+ *   <SimpleIdNameItem id="123">{(data) => data?.name}</SimpleIdNameItem>
+ * </SimpleIdNameProvider>
+ * ```
+ */
+export const {
+  IdNameProvider: SimpleIdNameProvider,
+  IdNameItem: SimpleIdNameItem,
+  IdNameContext: SimpleIdNameContext,
+} = createIdNameContext<{ id: string; name: string }>();

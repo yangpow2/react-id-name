@@ -7,8 +7,10 @@ Efficiently resolve IDs to names in React lists — with batching, caching, and 
 - 🚀 **Smart Batching** — Multiple IDs are merged into a single request
 - 👁️ **Viewport-aware** — Only fetches when the element is visible
 - 💾 **Built-in Cache** — No duplicate requests for the same ID
+- ⏰ **Cache TTL** — Optional cache expiration
 - 🔄 **Auto Retry** — Click to retry on error
-- 📦 **Tiny** — ~2KB gzipped, only one dependency
+- 🧹 **Cache Control** — Clear or refresh cache programmatically
+- 📦 **Tiny** — ~3KB gzipped, only one dependency
 - 🎯 **TypeScript** — Full type support with generics
 - ♻️ **Reusable** — Create once, use anywhere in your project
 
@@ -119,7 +121,24 @@ import { SimpleIdNameProvider, SimpleIdNameItem } from 'react-id-name';
 Factory function that creates a typed Provider and Item component pair.
 
 ```tsx
-const { IdNameProvider, IdNameItem, IdNameContext } = createIdNameContext<YourDataType>();
+const { IdNameProvider, IdNameItem, useIdNameCache, IdNameContext } = createIdNameContext<YourDataType>();
+```
+
+### `useIdNameCache()`
+
+Hook to access cache control functions. Must be used within an IdNameProvider.
+
+```tsx
+const { clearCache, refreshCache } = useIdNameCache();
+
+// Clear specific IDs
+clearCache(['user-1', 'user-2']);
+
+// Clear all cache
+clearCache();
+
+// Refresh specific IDs (clear and re-fetch when visible)
+refreshCache(['user-1']);
 ```
 
 ### `<IdNameProvider>`
@@ -128,6 +147,7 @@ const { IdNameProvider, IdNameItem, IdNameContext } = createIdNameContext<YourDa
 |------|------|---------|-------------|
 | `request` | `(ids: string[]) => Promise<Record<string, T>>` | **required** | Batch fetch function |
 | `debounceTime` | `number` | `80` | Debounce time in ms before batching |
+| `cacheTTL` | `number` | - | Cache expiration time in ms (optional) |
 | `children` | `ReactNode` | **required** | Child components |
 
 ### `<IdNameItem>`
@@ -187,6 +207,30 @@ function App() {
         <MyComponent />
       </ProductProvider>
     </UserProvider>
+  );
+}
+```
+
+### Cache TTL (Auto Expiration)
+
+```tsx
+// Cache expires after 5 minutes
+<IdNameProvider request={fetchUsers} cacheTTL={5 * 60 * 1000}>
+  <UserList />
+</IdNameProvider>
+```
+
+### Manual Cache Control
+
+```tsx
+function RefreshButton() {
+  const { clearCache, refreshCache } = useIdNameCache();
+  
+  return (
+    <>
+      <button onClick={() => clearCache()}>Clear All Cache</button>
+      <button onClick={() => refreshCache(['user-1'])}>Refresh User 1</button>
+    </>
   );
 }
 ```

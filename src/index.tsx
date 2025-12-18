@@ -4,6 +4,7 @@ import React, {
   useEffect,
   useMemo,
   useReducer,
+  useRef,
   useState,
   createContext,
   ReactNode,
@@ -24,6 +25,8 @@ type CacheMap<T> = Record<string, AsyncFnReturn<T>>;
 interface ContextValue<T> {
   cacheMapState: CacheMap<T>;
   onItemView: (id: string) => void;
+  clearCache: (ids?: string[]) => void;
+  refreshCache: (ids?: string[]) => void;
   __isProviderMounted: boolean;
 }
 
@@ -33,6 +36,8 @@ export interface IdNameProviderProps<T> {
   request: (ids: string[]) => Promise<Record<string, T>>;
   /** Debounce time in ms (default: 80) */
   debounceTime?: number;
+  /** Cache TTL in ms. If set, cached data will be refreshed after this time (default: no expiration) */
+  cacheTTL?: number;
 }
 
 export interface IdNameItemProps<T> {
@@ -55,11 +60,15 @@ export interface IdNameItemProps<T> {
 const CACHE_ACTION = {
   ADD: 'ADD' as const,
   UPDATE: 'UPDATE' as const,
+  CLEAR: 'CLEAR' as const,
+  CLEAR_ALL: 'CLEAR_ALL' as const,
 };
 
 type CacheAction<T> =
   | { type: typeof CACHE_ACTION.ADD; payload: CacheMap<T> }
-  | { type: typeof CACHE_ACTION.UPDATE; payload: CacheMap<T> };
+  | { type: typeof CACHE_ACTION.UPDATE; payload: CacheMap<T> }
+  | { type: typeof CACHE_ACTION.CLEAR; payload: string[] }
+  | { type: typeof CACHE_ACTION.CLEAR_ALL };
 
 function cacheReducer<T>(state: CacheMap<T>, action: CacheAction<T>): CacheMap<T> {
   switch (action.type) {
@@ -67,6 +76,13 @@ function cacheReducer<T>(state: CacheMap<T>, action: CacheAction<T>): CacheMap<T
       return { ...action.payload, ...state }; // Don't overwrite existing
     case CACHE_ACTION.UPDATE:
       return { ...state, ...action.payload }; // Force update
+    case CACHE_ACTION.CLEAR: {
+      const newState = { ...state };
+      action.payload.forEach((id) => delete newState[id]);
+      return newState;
+    }
+    case CACHE_ACTION.CLEAR_ALL:
+      return {};
     default:
       return state;
   }
@@ -98,7 +114,12 @@ const DefaultError = ({ error, onRetry }: { error: Error; onRetry: () => void })
 // ============ Factory Function ============
 
 const DEFAULT_DEBOUNCE_TIME = 80;
-const INIT_STATE: AsyncFnReturn<any> = [{ loading: true, error: undefined, value: undefined, isInit: true }, async () => {}];
+
+/** Create a fresh init state to avoid shared reference issues */
+const createInitState = <T,>(): AsyncFnReturn<T> => [
+  { loading: true, error: undefined, value: undefined, isInit: true },
+  async () => {},
+];
 
 /**
  * Create a pair of Provider and Item components for resolving IDs to names/details.
@@ -122,6 +143,8 @@ export function createIdNameContext<T>() {
   const IdNameContext = createContext<ContextValue<T>>({
     cacheMapState: {},
     onItemView: () => {},
+    clearCache: () => {},
+    refreshCache: () => {},
     __isProviderMounted: false,
   });
   IdNameContext.displayName = 'IdNameContext';
@@ -133,8 +156,19 @@ export function createIdNameContext<T>() {
     children,
     request,
     debounceTime = DEFAULT_DEBOUNCE_TIME,
+    cacheTTL,
   }: IdNameProviderProps<T>) => {
     const [cacheMapState, cacheMapDispatch] = useReducer(cacheReducer<T>, {});
+    const mountedRef = useRef(true);
+    const cacheTimestamps = useRef<Record<string, number>>({});
+
+    // Cleanup on unmount
+    useEffect(() => {
+      mountedRef.current = true;
+      return () => {
+        mountedRef.current = false;
+      };
+    }, []);
 
     const needUpdateIds = useMemo(
       () => Object.keys(cacheMapState).filter((k) => cacheMapState[k]?.[0]?.isInit),
@@ -144,33 +178,72 @@ export function createIdNameContext<T>() {
     const debouncedNeedUpdateIds = useDebounce(needUpdateIds, debounceTime);
 
     const batchUpdate = useCallback(
-      async (ids: string[]) => {
-        // Set loading state
+      async (ids: string[], isMounted: () => boolean = () => mountedRef.current) => {
+        if (ids.length === 0) return;
+
+        // Set loading state (create fresh objects for each id)
         const loadingStateMap: CacheMap<T> = Object.fromEntries(
-          ids.map((id) => [id, INIT_STATE])
+          ids.map((id) => [id, createInitState<T>()])
         );
         cacheMapDispatch({ type: CACHE_ACTION.UPDATE, payload: loadingStateMap });
 
         try {
           const resultMap = await request(ids);
-          const successStateMap: CacheMap<T> = Object.fromEntries(
-            ids.map((id) => [
-              id,
-              [
-                { value: resultMap[id], loading: false, error: undefined },
-                async () => batchUpdate([id]),
-              ],
-            ])
-          );
-          cacheMapDispatch({ type: CACHE_ACTION.UPDATE, payload: successStateMap });
+
+          // Check if still mounted before updating state
+          if (!isMounted()) return;
+
+          const now = Date.now();
+          const successStateMap: CacheMap<T> = {};
+          const errorStateMap: CacheMap<T> = {};
+
+          // Handle each ID individually - some may succeed, some may fail
+          ids.forEach((id) => {
+            const result = resultMap[id];
+            if (result !== undefined) {
+              cacheTimestamps.current[id] = now;
+              successStateMap[id] = [
+                { value: result, loading: false, error: undefined },
+                async () => {
+                  if (mountedRef.current) {
+                    batchUpdate([id]);
+                  }
+                },
+              ];
+            } else {
+              // ID not found in result - treat as individual error
+              errorStateMap[id] = [
+                { value: undefined, loading: false, error: new Error(`ID "${id}" not found`) },
+                async () => {
+                  if (mountedRef.current) {
+                    batchUpdate([id]);
+                  }
+                },
+              ];
+            }
+          });
+
+          if (Object.keys(successStateMap).length > 0) {
+            cacheMapDispatch({ type: CACHE_ACTION.UPDATE, payload: successStateMap });
+          }
+          if (Object.keys(errorStateMap).length > 0) {
+            cacheMapDispatch({ type: CACHE_ACTION.UPDATE, payload: errorStateMap });
+          }
         } catch (e) {
+          // Check if still mounted before updating state
+          if (!isMounted()) return;
+
           const error = e instanceof Error ? e : new Error(String(e));
           const errorStateMap: CacheMap<T> = Object.fromEntries(
             ids.map((id) => [
               id,
               [
                 { value: undefined, loading: false, error },
-                async () => batchUpdate([id]),
+                async () => {
+                  if (mountedRef.current) {
+                    batchUpdate([id]);
+                  }
+                },
               ],
             ])
           );
@@ -186,15 +259,58 @@ export function createIdNameContext<T>() {
       }
     }, [batchUpdate, debouncedNeedUpdateIds]);
 
+    // TTL check effect
+    useEffect(() => {
+      if (!cacheTTL) return;
+
+      const checkExpired = () => {
+        const now = Date.now();
+        const expiredIds = Object.keys(cacheTimestamps.current).filter(
+          (id) => now - cacheTimestamps.current[id] > cacheTTL
+        );
+        if (expiredIds.length > 0) {
+          // Clear expired entries, they will be re-fetched when visible
+          cacheMapDispatch({ type: CACHE_ACTION.CLEAR, payload: expiredIds });
+          expiredIds.forEach((id) => delete cacheTimestamps.current[id]);
+        }
+      };
+
+      const interval = setInterval(checkExpired, Math.min(cacheTTL, 60000));
+      return () => clearInterval(interval);
+    }, [cacheTTL]);
+
     const onItemView = useCallback((id: string) => {
-      cacheMapDispatch({ type: CACHE_ACTION.ADD, payload: { [id]: INIT_STATE } });
+      cacheMapDispatch({ type: CACHE_ACTION.ADD, payload: { [id]: createInitState<T>() } });
     }, []);
+
+    const clearCache = useCallback((ids?: string[]) => {
+      if (ids && ids.length > 0) {
+        cacheMapDispatch({ type: CACHE_ACTION.CLEAR, payload: ids });
+        ids.forEach((id) => delete cacheTimestamps.current[id]);
+      } else {
+        cacheMapDispatch({ type: CACHE_ACTION.CLEAR_ALL });
+        cacheTimestamps.current = {};
+      }
+    }, []);
+
+    const refreshCache = useCallback(
+      (ids?: string[]) => {
+        const idsToRefresh = ids || Object.keys(cacheMapState);
+        if (idsToRefresh.length > 0) {
+          // Clear and re-fetch
+          clearCache(idsToRefresh);
+        }
+      },
+      [cacheMapState, clearCache]
+    );
 
     return (
       <IdNameContext.Provider
         value={{
           cacheMapState,
           onItemView,
+          clearCache,
+          refreshCache,
           __isProviderMounted: true,
         }}
       >
@@ -285,9 +401,28 @@ export function createIdNameContext<T>() {
   };
   IdNameItem.displayName = 'IdNameItem';
 
+  /**
+   * Hook to access cache control functions.
+   * @returns { clearCache, refreshCache } functions
+   */
+  const useIdNameCache = () => {
+    const context = useContext(IdNameContext);
+    if (!context.__isProviderMounted) {
+      throw new Error('useIdNameCache must be used within an IdNameProvider');
+    }
+    return {
+      /** Clear specific IDs from cache, or all if no IDs provided */
+      clearCache: context.clearCache,
+      /** Refresh specific IDs, or all cached IDs if no IDs provided */
+      refreshCache: context.refreshCache,
+    };
+  };
+
   return {
     IdNameProvider,
     IdNameItem,
+    /** Hook to access cache control functions */
+    useIdNameCache,
     /** The underlying context, for advanced use cases */
     IdNameContext,
   };
@@ -303,7 +438,7 @@ export default createIdNameContext;
  *
  * @example
  * ```tsx
- * import { SimpleIdNameProvider, SimpleIdNameItem } from 'react-id-name';
+ * import { SimpleIdNameProvider, SimpleIdNameItem, useSimpleIdNameCache } from 'react-id-name';
  *
  * <SimpleIdNameProvider request={fetchNames}>
  *   <SimpleIdNameItem id="123">{(data) => data?.name}</SimpleIdNameItem>
@@ -313,5 +448,6 @@ export default createIdNameContext;
 export const {
   IdNameProvider: SimpleIdNameProvider,
   IdNameItem: SimpleIdNameItem,
+  useIdNameCache: useSimpleIdNameCache,
   IdNameContext: SimpleIdNameContext,
 } = createIdNameContext<{ id: string; name: string }>();

@@ -1,6 +1,6 @@
 {
   "name": "react-id-name",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "Efficiently resolve IDs to names in React lists — with batching, caching, and lazy loading",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
@@ -58,6 +58,7 @@
   "devDependencies": {
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^14.3.1",
+    "@testing-library/user-event": "^14.6.1",
     "@types/react": "^18.2.0",
     "jsdom": "^27.3.0",
     "react": "^18.2.0",
